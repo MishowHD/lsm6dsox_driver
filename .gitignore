@@ -1,0 +1,25 @@
+# Kernel build artifacts
+*.o
+*.ko
+*.mod.c
+*.mod
+*.o.cmd
+*.ko.cmd
+.tmp_versions/
+modules.order
+Module.symvers
+.lsm6dsox_driver.*
+
+# LaTeX artifacts
+*.aux
+*.log
+*.out
+*.toc
+*.synctex.gz
+latex.log
+
+# Editor/OS artifacts
+.cache/
+.vscode/
+*.swp
+*~

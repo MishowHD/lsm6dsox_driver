@@ -1,0 +1,71 @@
+### STEP 1: CLEANUP AND RESET
+# Remove any existing instance of the device and unload the official drivers if present.
+# This ensures our custom driver doesn't conflict with the standard kernel ones (st_lsm6dsx).
+# 'dmesg -c' clears the kernel log buffer so we can monitor fresh messages.
+echo 0x6a | sudo tee /sys/bus/i2c/devices/i2c-1/delete_device
+sudo rmmod st_lsm6dsx_i2c
+sudo rmmod st_lsm6dsx
+sudo dmesg -c
+
+### STEP 2: LOAD KERNEL INFRASTRUCTURE
+# Load the bridge driver for the MCP2221 (USB-to-I2C) and the user-space I2C interface.
+sudo modprobe hid-mcp2221
+sudo modprobe i2c-dev
+
+# Load the Industrial I/O (IIO) core modules needed for buffering and kfifo management.
+sudo modprobe industrialio
+sudo modprobe industrialio-triggered-buffer
+sudo modprobe kfifo_buf
+
+### STEP 3: INSERT CUSTOM DRIVER AND INSTANTIATE DEVICE
+# Insert our compiled kernel module into the kernel.
+# Then, manually notify the I2C bus 1 about the new 'lsm6dsox' device at address 0x6a.
+sudo insmod /mnt/aos/lsm6dsox_driver.ko
+echo lsm6dsox 0x6a | sudo tee /sys/bus/i2c/devices/i2c-1/new_device
+
+### STEP 4: VERIFY BINDING AND PROBE
+# Check if the driver is correctly bound to the device in sysfs.
+# Read the 'name' attribute from the IIO device to confirm our driver successfully probed it.
+ls -l /sys/bus/i2c/devices/1-006a/driver
+cat /sys/bus/iio/devices/iio:device0/name
+
+### STEP 5: DIRECT MODE (RAW DATA ACCESS)
+# Read raw values directly from sysfs. In this mode, each 'cat' triggers a single SPI/I2C read.
+# To get the physical value, use: Physical = Raw * Scale.
+# Accel units are m/s^2, Gyro units are rad/s.
+cat /sys/bus/iio/devices/iio:device0/in_accel_x_raw
+cat /sys/bus/iio/devices/iio:device0/in_accel_scale
+cat /sys/bus/iio/devices/iio:device0/in_anglvel_z_raw
+cat /sys/bus/iio/devices/iio:device0/in_anglvel_scale
+
+### STEP 6: CONFIGURE CONTINUOUS DATA STREAMING (BUFFERED MODE)
+# Load the high-resolution timer trigger module and create a new software trigger named 'finto'.
+sudo modprobe iio-trig-hrtimer
+sudo mkdir -p /sys/kernel/config/iio/triggers/hrtimer/finto
+
+# Step 6a: Prepare the device (Buffer must be disabled to change configuration).
+echo 0 | sudo tee /sys/bus/iio/devices/iio:device0/buffer/enable
+
+# Step 6b: Set the trigger frequency (e.g., 100 Hz) and attach the trigger to our device.
+echo 100 | sudo tee /sys/bus/iio/devices/trigger0/sampling_frequency
+echo finto | sudo tee /sys/bus/iio/devices/iio:device0/trigger/current_trigger
+
+# Step 6c: Enable specific channels to be included in the data packet (scan elements).
+# Here we enable Accelerometer X-axis and Gyroscope Z-axis.
+echo 1 | sudo tee /sys/bus/iio/devices/iio:device0/scan_elements/in_accel_x_en
+echo 1 | sudo tee /sys/bus/iio/devices/iio:device0/scan_elements/in_anglvel_z_en
+
+### STEP 7: START STREAMING
+# Enable the buffer. The driver will now start pushing data to the kfifo on every trigger event.
+# Use 'hexdump' to see the binary data coming from the character device.
+echo 1 | sudo tee /sys/bus/iio/devices/iio:device0/buffer/enable
+sudo cat /dev/iio:device0 | hexdump -C
+
+### STEP 8: FINAL CLEANUP
+# Disable the buffer, detach the trigger, and remove the hrtimer instance.
+# Finally, delete the I2C device and unload our custom driver module.
+echo 0 | sudo tee /sys/bus/iio/devices/iio:device0/buffer/enable
+echo "" | sudo tee /sys/bus/iio/devices/iio:device0/trigger/current_trigger
+sudo rmdir /sys/kernel/config/iio/triggers/hrtimer/finto
+echo 0x6a | sudo tee /sys/bus/i2c/devices/i2c-1/delete_device
+sudo rmmod lsm6dsox_driver

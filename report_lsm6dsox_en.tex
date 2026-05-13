@@ -1,0 +1,218 @@
+\documentclass[10pt,a4paper]{article}
+\usepackage[english]{babel}
+\usepackage[utf8x]{inputenc}
+\usepackage{amsmath}
+\usepackage{graphicx}
+\usepackage[colorinlistoftodos]{todonotes}
+\usepackage{hyperref}
+\usepackage{geometry}
+\geometry{top=3cm,left=2cm,right=2cm,bottom=3cm}
+\usepackage[scaled]{helvet}
+\usepackage[T1]{fontenc}
+\renewcommand\familydefault{\sfdefault}
+\usepackage{listings}
+\usepackage{xcolor}
+
+\definecolor{codegreen}{rgb}{0,0.6,0}
+\definecolor{codegray}{rgb}{0.5,0.5,0.5}
+\definecolor{codepurple}{rgb}{0.58,0,0.82}
+\definecolor{backcolour}{rgb}{0.95,0.95,0.92}
+
+\lstdefinestyle{mystyle}{
+    backgroundcolor=\color{backcolour},
+    commentstyle=\color{codegreen},
+    keywordstyle=\color{magenta},
+    numberstyle=\tiny\color{codegray},
+    stringstyle=\color{codepurple},
+    basicstyle=\ttfamily\footnotesize,
+    breakatwhitespace=false,
+    breaklines=true,
+    captionpos=b,
+    keepspaces=true,
+    numbers=left,
+    numbersep=5pt,
+    showspaces=false,
+    showstringspaces=false,
+    showtabs=false,
+    tabsize=2,
+    aboveskip=4pt,
+    belowskip=4pt
+}
+
+\lstset{style=mystyle}
+
+\author{Giacomo Di Clerico, Lorenzo D'Ortona}
+\date{Academic Year 2025/2026}
+\title{LSM6DSOX IIO Linux Driver Development}
+
+\begin{document}
+\maketitle
+\tableofcontents
+
+\section{Project data}
+
+\begin{itemize}
+\item 
+  Project supervisor(s): Prof. Vittorio Zaccaria
+
+\item 
+Describe in this table the group that is delivering this project:
+
+\begin{center}
+\begin{tabular}{l}
+Last and first name \\
+\hline
+  Di Clerico Giacomo \\
+  D'Ortona Lorenzo \\
+\end{tabular}
+\end{center}
+
+\item
+Describe here how development tasks have been subdivided among members
+of the group:
+
+\begin{itemize}
+\item Both members worked together on all phases of the project, including hardware setup, driver implementation (I2C, Regmap, IIO core), and testing. Tasks were shared equally to ensure both gained full understanding of the kernel environment.
+\end{itemize}
+
+\item Links to the project source code: \url{https://github.com/MishowHD/lsm6dsox_driver}
+
+\end{itemize}
+
+
+\section{Project description}
+
+This project documents the development
+ of a Linux IIO driver for the ST LSM6DSOX IMU, as part of the \textbf{Advanced Operating Systems (AOS)} course. We selected the LSM6DSOX from the \textbf{Adafruit} catalog due to its advanced feature set, which includes an integrated temperature sensor, Machine Learning Core (MLC), and Finite State Machines (FSM). While these advanced features were the primary motivation for our choice, they were considered out of scope for this initial implementation, which focuses on the core IMU functionality.
+
+\subsection{Importance for the AOS course}
+This project is highly relevant to the AOS course as it provides practical experience with Linux kernel internals and the development of kernel modules. It directly applies concepts such as:
+\begin{itemize}
+    \item \textbf{Kernel-User Space Interfacing}: Using \texttt{sysfs} and \texttt{devfs} for data exchange.
+    \item \textbf{Synchronization}: Managing concurrency in kernel space (transitioning from mutexes to the Regmap locking model).
+    \item \textbf{Subsystem Architecture}: Understanding the layering of the Industrial I/O (IIO) framework.
+    \item \textbf{Interrupt Handling}: Implementing hardware-driven data acquisition via triggered buffers.
+\end{itemize}
+The project helps bridge the gap between theoretical operating system concepts and the real-world complexities of hardware-software interaction in a modern monolithic kernel.
+
+\subsection{Design and implementation}
+The development was carried out on a \textbf{Debian 13} virtual machine managed via \textbf{Virtual Machine Manager} (QEMU/KVM). To streamline the workflow, we used a shared directory between the host and the guest using \textbf{virtiofs}. This allowed us to compile the module on the guest while keeping the source code and the git repository on the host.
+
+The hardware setup used:
+\begin{itemize}
+    \item \textbf{Sensor}: LSM6DSOX on an Adafruit breakout board.
+    \item \textbf{Adapter}: \textbf{MCP2221A} (USB-to-I2C/GPIO bridge). This allowed us to interface the I2C sensor directly with a standard PC via USB, bypassing the need for an embedded development board (like a Raspberry Pi) and enabling development within a virtualized environment.
+    \item \textbf{Cabling}: A \textbf{STEMMA QT} (JST SH 4-pin) cable connected the sensor to the adapter.
+\end{itemize}
+
+The driver followed an incremental implementation:
+\begin{enumerate}
+    \item \textbf{Basic I2C}: Setup of the \texttt{probe} function and \texttt{WHO\_AM\_I} check.
+    \item \textbf{IIO Core}: Implementation of \texttt{read\_raw} for scaled accelerometer and gyroscope data.
+    \item \textbf{Regmap}: Refactoring to use the \texttt{regmap} API for kernel compliance and simplified I/O management.
+    \item \textbf{Triggered Buffers}: Configured the \texttt{INT1} pin for hardware-driven data streaming (emulated via software \texttt{hrtimer} in the virtual environment due to the lack of hardware IRQ routing through the USB adapter).
+\end{enumerate}
+
+\subsubsection{Comparison with the Official \texttt{st\_lsm6dsx} Kernel Driver}
+
+The mainline Linux kernel includes an official driver for the LSM6DSX family, located at \texttt{drivers/iio/imu/st\_lsm6dsx/}. A comparison between that implementation and ours highlights the trade-offs between a production-grade, general-purpose driver and a focused, educational one.
+
+\paragraph{Architecture and Scope}
+The official driver is a \textbf{multi-file subsystem} split across several source files (\texttt{st\_lsm6dsx\_core.c}, \texttt{st\_lsm6dsx\_i2c.c}, etc.), supporting over a dozen variants. Our driver is a \textbf{single-file, single-device} implementation, prioritizing clarity and traceability at the cost of portability.
+
+\paragraph{Data Acquisition}
+The official driver leverages the sensor's on-chip \textbf{hardware FIFO} (up to 3\,kB) and drains it via watermark interrupts. Our driver implements a standard \textbf{IIO triggered buffer}: on each trigger event, the handler performs a live \texttt{regmap\_bulk\_read} and pushes data to the \texttt{kfifo}. While our approach is functionally correct and easier to implement, the official one is significantly more power-efficient.
+
+\paragraph{Configurability}
+In our driver, the ODR and full-scale range are \textbf{hardcoded} at probe time (104\,Hz and 2\,g / 250\,dps). The official driver exposes these as \textbf{IIO attributes} (\texttt{in\_accel\_sampling\_frequency}, \texttt{in\_accel\_scale}), allowing users to reconfigure the sensor at runtime without reloading the module.
+
+\paragraph{Summary Table}
+\begin{center}
+\begin{tabular}{lll}
+\hline
+\textbf{Feature} & \textbf{Our Driver} & \textbf{Official \texttt{st\_lsm6dsx}} \\
+\hline
+Transport & I2C only & I2C + SPI \\
+Multi-device support & LSM6DSOX only & 15+ variants \\
+ODR / FS configuration & Hardcoded at probe & Runtime via sysfs \\
+Data acquisition & Triggered buffer (kfifo) & Hardware FIFO + watermark IRQ \\
+Device enumeration & Manual (\texttt{new\_device}) & Device Tree / ACPI \\
+Advanced Features & \texttimes & Step counter, MLC, FSM \\
+\hline
+\end{tabular}
+\end{center}
+
+\section{Project outcomes}
+
+\subsection{Concrete outcomes}
+The primary artifact is a functional Linux kernel module (\texttt{lsm6dsox\_driver.ko}) that exposes the sensor's capabilities through the Industrial I/O (IIO) framework.
+
+\subsubsection{Device Instantiation and Direct Mode}
+Since the sensor is not defined in a Device Tree in our virtualized environment, we manually instantiate it on the I2C bus:
+\begin{lstlisting}[language=bash]
+echo lsm6dsox 0x6a | sudo tee /sys/bus/i2c/devices/i2c-1/new_device
+\end{lstlisting}
+Once registered, the driver exposes raw data attributes through \texttt{sysfs}. Verification is performed by reading these attributes, which triggers the driver's \texttt{read\_raw} function:
+\begin{lstlisting}[language=bash]
+# Read raw accelerometer X-axis data
+cat /sys/bus/iio/devices/iio:device0/in_accel_x_raw
+# Read the scale factor
+cat /sys/bus/iio/devices/iio:device0/in_accel_scale
+\end{lstlisting}
+
+\subsubsection{Triggered Buffer and Streaming}
+To validate high-speed data acquisition without hardware interrupts, we used a software-based trigger (\texttt{iio-trig-hrtimer}):
+\begin{enumerate}
+    \item \textbf{Trigger Creation}:
+    \begin{lstlisting}[language=bash]
+sudo mkdir /sys/kernel/config/iio/triggers/hrtimer/finto
+    \end{lstlisting}
+    \item \textbf{Buffer Configuration}: We enabled the desired channels and bound the trigger to the device.
+    \item \textbf{Data Validation}: Enabling the buffer allowed us to stream data through the \texttt{kfifo}, verified via \texttt{hexdump}:
+    \begin{lstlisting}[language=bash]
+echo 1 | sudo tee /sys/bus/iio/devices/iio:device0/buffer/enable
+sudo cat /dev/iio:device0 | hexdump -C
+    \end{lstlisting}
+\end{enumerate}
+The output confirmed a 12-byte payload per sample (including active axes and an 8-byte timestamp), demonstrating successful hardware-software synchronization.
+
+\subsection{Learning outcomes}
+The development process provided deep insights into the Linux kernel's IIO subsystem, the \texttt{regmap} API, and kernel-space synchronization. We also learned how to interact with kernel tooling like \texttt{i2c-tools} for validation. 
+In terms of unanswered questions, while we successfully implemented a triggered buffer, the full integration of the sensor's internal hardware FIFO remains an area for future exploration. The knowledge acquired regarding concurrency and hardware-software interfacing will be highly valuable in our future careers, especially for system-level programming and embedded systems development.
+
+\subsection{Existing knowledge}
+The \textbf{Operating Systems} course provided the essential theoretical foundation. Our practical background was further expanded during the \textbf{laboratory sessions}, where we developed trivial drivers, gaining initial familiarity with the kernel environment and the module lifecycle. Since we had never written a complex kernel driver, we supplemented this by extensively studying the Linux kernel documentation. This project was a practical application of OS theory to a low-level task.
+Regarding suggestions for the AOS course, we particularly enjoyed the practical laboratory sessions. We believe that incorporating even more hands-on labs, perhaps focusing on kernel module debugging techniques, would further enhance the learning experience.
+
+\subsection{Problems encountered}
+\begin{itemize}
+    \item \textbf{IIO Trigger Availability}: Hardware IRQs were unavailable in our initial VM setup. We faced difficulties setting up hardware-based triggers and initially fell back to polling mode. To test the triggered buffer functionality, we switched our environment to \textbf{Debian 13}, which provided better support for the \texttt{iio-trig-hrtimer} module, allowing us to instantiate a virtual high-resolution timer as a trigger.
+    \item \textbf{Virtiofs Permissions}: Configuring the shared directory with the correct permissions for kernel module compilation was a preliminary step required to manage the source code between the host and the guest smoothly.
+    \item \textbf{Debugging}: Without a logic analyzer, we relied heavily on \texttt{dmesg} to verify if the \texttt{probe} function was successful and to identify that hardware interrupts were not being routed correctly in the VM.
+\end{itemize}
+
+\subsection{Code Quality and Kernel Compliance}
+To ensure that the driver meets the rigorous standards required for inclusion in the Linux kernel, we performed static analysis and style verification. The primary tool used was \texttt{checkpatch.pl}, the official script used by kernel developers. We iteratively refined the code to adhere to the \textbf{Linux Kernel Coding Style}, focusing on:
+\begin{itemize}
+    \item \textbf{Formatting}: Proper use of tabs for indentation and adhering to the 100-column line length limit.
+    \item \textbf{Naming Conventions}: Strict adherence to \texttt{snake\_case} for functions, variables, and structures.
+    \item \textbf{Kernel Utilities}: Extensive use of kernel-specific macros and managed resources (e.g., \texttt{devm\_*} functions for automatic resource cleanup, \texttt{ARRAY\_SIZE()} for array bounds, and \texttt{PTR\_ERR()} for error handling) to ensure robust and idiomatic code.
+\end{itemize}
+
+\section{Honor Pledge}
+
+I/We pledge that this work
+ was fully and wholly completed within the criteria
+established for academic integrity by Politecnico di Milano (Code of Ethics and
+Conduct) and represents my/our original production, unless otherwise cited.
+
+I/We also understand that this project, if successfully graded,  will fulfill part B requirement of the
+Advanced Operating System course and that it will be considered valid up until
+the AOS exam of Sept. 2026. 
+
+\begin{flushright}
+Giacomo Di Clerico \\
+Lorenzo D'Ortona
+\end{flushright}
+
+\end{document}
