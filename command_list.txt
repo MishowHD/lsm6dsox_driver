@@ -3,6 +3,8 @@
 # This ensures our custom driver doesn't conflict with the standard kernel ones (st_lsm6dsx).
 # 'dmesg -c' clears the kernel log buffer so we can monitor fresh messages.
 echo 0x6a | sudo tee /sys/bus/i2c/devices/i2c-1/delete_device
+# Expected output: 0x6a
+# (If device was not present, dmesg may show a warning — this is normal on first run)
 sudo rmmod st_lsm6dsx_i2c
 sudo rmmod st_lsm6dsx
 sudo dmesg -c
@@ -21,22 +23,42 @@ sudo modprobe kfifo_buf
 # Insert our compiled kernel module into the kernel.
 # Then, manually notify the I2C bus 1 about the new 'lsm6dsox' device at address 0x6a.
 sudo insmod /mnt/aos/lsm6dsox_driver.ko
+# Expected output: (no output means success)
+# Verify with: dmesg | tail -5
+# Look for: "lsm6dsox 1-006a: WHO_AM_I ok" and a warning about no HW IRQ (normal in VM)
+# Failure looks like: "insmod: ERROR: could not insert module ... File exists"
+#   → fix: sudo rmmod lsm6dsox_driver first
 echo lsm6dsox 0x6a | sudo tee /sys/bus/i2c/devices/i2c-1/new_device
+# Expected output: lsm6dsox 0x6a
+# Then check dmesg: should show probe success and "No HW IRQ found" warning (expected in VM)
 
 ### STEP 4: VERIFY BINDING AND PROBE
 # Check if the driver is correctly bound to the device in sysfs.
 # Read the 'name' attribute from the IIO device to confirm our driver successfully probed it.
 ls -l /sys/bus/i2c/devices/1-006a/driver
+# Expected output: a symlink pointing to ../../../bus/i2c/drivers/lsm6dsox
+# Failure (no such file): the probe function failed — check dmesg for the error
 cat /sys/bus/iio/devices/iio:device0/name
+# Expected output: lsm6dsox
+# (exactly this string, lowercase, no spaces)
 
 ### STEP 5: DIRECT MODE (RAW DATA ACCESS)
 # Read raw values directly from sysfs. In this mode, each 'cat' triggers a single SPI/I2C read.
 # To get the physical value, use: Physical = Raw * Scale.
 # Accel units are m/s^2, Gyro units are rad/s.
 cat /sys/bus/iio/devices/iio:device0/in_accel_x_raw
+# Expected output: a signed integer, e.g.: -312  or  1024  or  16742
+# This is the raw ADC value. Multiply by in_accel_scale to get m/s^2.
+# If the sensor is stationary and flat, in_accel_z_raw should be near +1680
+# (which corresponds to ~1g = 9.8 m/s^2 at the default 2g full scale)
 cat /sys/bus/iio/devices/iio:device0/in_accel_scale
+# Expected output: 0.000598205
+# This is the fixed scale factor: (0.061 mg/LSB * 9.80665) / 1000
 cat /sys/bus/iio/devices/iio:device0/in_anglvel_z_raw
+# Expected output: a signed integer near 0 when stationary, e.g.: 3  or  -7
 cat /sys/bus/iio/devices/iio:device0/in_anglvel_scale
+# Expected output: 0.000152716
+# This is the fixed scale factor: (8.75 mdps/LSB * pi / 180) / 1000
 
 ### STEP 6: CONFIGURE CONTINUOUS DATA STREAMING (BUFFERED MODE)
 # Load the high-resolution timer trigger module and create a new software trigger named 'finto'.
@@ -45,21 +67,35 @@ sudo mkdir -p /sys/kernel/config/iio/triggers/hrtimer/finto
 
 # Step 6a: Prepare the device (Buffer must be disabled to change configuration).
 echo 0 | sudo tee /sys/bus/iio/devices/iio:device0/buffer/enable
+# Expected output: 0
+# The buffer must be disabled before changing trigger or scan_elements configuration
 
 # Step 6b: Set the trigger frequency (e.g., 100 Hz) and attach the trigger to our device.
 echo 100 | sudo tee /sys/bus/iio/devices/trigger0/sampling_frequency
+# Expected output: 100
+# This sets the hrtimer to fire 100 times per second
 echo finto | sudo tee /sys/bus/iio/devices/iio:device0/trigger/current_trigger
+# Expected output: finto
+# Failure: "write error: Invalid argument" → the trigger was not created (check Step 6 mkdir)
 
 # Step 6c: Enable specific channels to be included in the data packet (scan elements).
 # Here we enable Accelerometer X-axis and Gyroscope Z-axis.
 echo 1 | sudo tee /sys/bus/iio/devices/iio:device0/scan_elements/in_accel_x_en
+# Expected output: 1
 echo 1 | sudo tee /sys/bus/iio/devices/iio:device0/scan_elements/in_anglvel_z_en
+# Expected output: 1
 
 ### STEP 7: START STREAMING
 # Enable the buffer. The driver will now start pushing data to the kfifo on every trigger event.
 # Use 'hexdump' to see the binary data coming from the character device.
 echo 1 | sudo tee /sys/bus/iio/devices/iio:device0/buffer/enable
+# Expected output: 1
+# After this, the driver starts calling lsm6dsox_trigger_handler at 100 Hz
 sudo cat /dev/iio:device0 | hexdump -C
+# Expected output: a continuous stream of hex lines, one per sample, e.g.:
+# 00000000  f2 ff d4 01 3a 00 12 34  56 ff a1 00 00 00 00 00  |....:.4V.......|
+# Each line is 20 bytes: 12 bytes of sensor data + 4 bytes padding + 8 bytes timestamp
+# Press Ctrl+C to stop. If no output appears, the trigger may not be firing.
 
 ### STEP 8: FINAL CLEANUP
 # Disable the buffer, detach the trigger, and remove the hrtimer instance.
@@ -69,3 +105,5 @@ echo "" | sudo tee /sys/bus/iio/devices/iio:device0/trigger/current_trigger
 sudo rmdir /sys/kernel/config/iio/triggers/hrtimer/finto
 echo 0x6a | sudo tee /sys/bus/i2c/devices/i2c-1/delete_device
 sudo rmmod lsm6dsox_driver
+# Expected output: (no output means success)
+# Verify with: lsmod | grep lsm6dsox   → should return nothing

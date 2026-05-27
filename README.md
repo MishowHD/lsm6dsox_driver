@@ -1,73 +1,77 @@
-# LSM6DSOX Linux IIO Driver
+# LSM6DSOX IIO Linux Driver - Educational Project
 
-A Linux kernel driver for the STMicroelectronics LSM6DSOX Inertial Measurement Unit (IMU), developed as part of the Advanced Operating Systems (AOS) course at Politecnico di Milano.
+This repository contains a Linux kernel driver for the **ST LSM6DSOX** IMU (Accelerometer + Gyroscope), developed as an educational project for the **Advanced Operating Systems (AOS)** course.
 
-**Note: This project received a maximum grade of 10/10.**
+## Recommended Reading Path
 
-## Overview
+If you are new to Linux kernel driver development, follow this path in order.
+Each step builds on the previous one.
 
-This project implements a custom Linux driver for the LSM6DSOX sensor using the Industrial I/O (IIO) framework. The driver provides support for:
-- 3-axis Accelerometer and 3-axis Gyroscope raw data access via sysfs.
-- Regmap-based I/O management for I2C communication.
-- Triggered buffer support for continuous data streaming using software triggers (hrtimer).
-- Kernel-standard resource management (devm).
+**Step 1 — Understand the hardware registers**
+Read [`lsm6dsox.h`](./lsm6dsox.h) first.
+It is short (~40 lines) and defines every register address the driver uses.
+Understanding what `WHO_AM_I`, `CTRL1_XL`, and `OUTX_L_G` mean makes the driver code
+immediately readable. Each register now includes a datasheet reference.
 
-## Hardware Setup
+**Step 2 — Read the driver source with the tutorial open side by side**
+Read [`lsm6dsox_driver.c`](./lsm6dsox_driver.c) in this order:
+- `lsm6dsox_regmap_config` — how the I2C bus is abstracted
+- `lsm6dsox_channels[]` — how sensor axes are declared to the IIO framework
+- `lsm6dsox_probe()` — the initialization sequence (hardware verify → IIO setup → register)
+- `lsm6dsox_read_raw()` — the on-demand sysfs read path
+- `lsm6dsox_trigger_handler()` — the high-speed buffered streaming path
 
-The development and testing were performed using the following hardware:
-- **Sensor**: ST LSM6DSOX (Adafruit breakout board).
-- **Interface**: MCP2221A USB-to-I2C bridge.
-- **Environment**: Debian 13 virtualized via QEMU/KVM with the sensor connected over USB.
+**Step 3 — Understand the build system**
+Read [`TUTORIAL.md`](./TUTORIAL.md) section 1 (Kbuild) and section 0 (Prerequisites).
+Then set up your environment and compile with `make`.
 
-## Features
+**Step 4 — Test the driver step by step**
+Follow [`command_list.txt`](./command_list.txt).
+Each command now includes an "Expected output" comment so you know immediately
+whether each step succeeded.
 
-- **IIO Core**: Integration with the Linux Industrial I/O subsystem.
-- **Triggered Buffers**: Support for high-speed data acquisition through kfifo.
-- **Regmap**: Efficient register access abstraction.
-- **Scalability**: While currently optimized for a specific educational setup, the driver follows kernel best practices for portability.
+**Step 5 — Visualize the architecture**
+Open [`slides.pdf`](./slides.pdf) for sequence diagrams of:
+- The probe function call sequence
+- The raw data read path (sysfs → driver → I2C → sensor)
+- The triggered buffer data flow
 
-## Usage
-
-### 1. Build and Load
-Compile the driver using the provided Makefile:
-```bash
-make
-sudo insmod lsm6dsox_driver.ko
-```
-
-### 2. Device Instantiation
-Manually instantiate the device on the I2C bus:
-```bash
-echo lsm6dsox 0x6a | sudo tee /sys/bus/i2c/devices/i2c-1/new_device
-```
-
-### 3. Data Access
-Read raw sensor data and scale factors:
-```bash
-cat /sys/bus/iio/devices/iio:device0/in_accel_x_raw
-cat /sys/bus/iio/devices/iio:device0/in_accel_scale
-```
-
-### 4. Continuous Streaming
-Set up a software trigger and enable the buffer:
-```bash
-sudo modprobe iio-trig-hrtimer
-sudo mkdir -p /sys/kernel/config/iio/triggers/hrtimer/finto
-echo 100 | sudo tee /sys/bus/iio/devices/trigger0/sampling_frequency
-echo finto | sudo tee /sys/bus/iio/devices/iio:device0/trigger/current_trigger
-echo 1 | sudo tee /sys/bus/iio/devices/iio:device0/buffer/enable
-sudo cat /dev/iio:device0 | hexdump -C
-```
+**Step 6 — Read the full technical report**
+[`report_lsm6dsox_en.pdf`](./report_lsm6dsox_en.pdf) covers the design decisions,
+comparison with the official kernel driver, and lessons learned.
 
 ## Project Structure
-- `lsm6dsox_driver.c`: Core driver implementation.
-- `lsm6dsox.h`: Register definitions and macros.
-- `report_lsm6dsox_en.tex`: Detailed technical report source.
-- `command_list.txt`: Handy list of commands for testing.
 
-## Authors
-- **Giacomo Di Clerico** - [GitHub Profile](https://github.com/MishowHD)
-- **Lorenzo D'Ortona** - [GitHub Profile](https://github.com/LorenzoDOrtona)
+- `lsm6dsox_driver.c`: The main driver source code (IIO + Regmap).
+- `lsm6dsox.h`: Register definitions for the LSM6DSOX sensor.
+- `command_list.txt`: A quick-reference cheat sheet for testing the driver in a virtual machine.
+- `report_lsm6dsox_en.pdf`: The detailed technical report (LaTeX).
+- `slides.pdf`: The project presentation with sequence diagrams.
 
-## License
-This project was originally developed for academic purposes.
+## Key Features
+
+- **IIO Direct Mode**: Real-time reading of raw and scaled data via `sysfs`.
+- **Triggered Buffers**: High-speed binary streaming using `kfifo`.
+- **Regmap Abstraction**: Clean hardware-software interfacing with built-in locking.
+- **Managed Resources (`devm`)**: Robust memory and resource management.
+
+## Ideas for Extension
+
+This driver is intentionally minimal. If you want to go further, here are concrete directions:
+
+- **Runtime ODR/FS configuration:** Expose `in_accel_sampling_frequency` as a writable
+  sysfs attribute using `iio_info.write_raw`. The sensor supports ODRs from 12.5 Hz to 6.66 kHz.
+- **Hardware FIFO:** The LSM6DSOX has an on-chip 3 kB FIFO. Using watermark interrupts
+  instead of per-sample triggers is significantly more power-efficient. See the official
+  `st_lsm6dsx` driver for reference.
+- **Temperature sensor:** Register `OUT_TEMP_L` (0x20) provides ambient temperature.
+  Adding an `IIO_TEMP` channel requires only a new entry in `lsm6dsox_channels[]`
+  and a new case in `lsm6dsox_read_raw()`.
+- **SPI support:** Regmap makes this straightforward. Add `devm_regmap_init_spi()`,
+  a new `spi_driver` struct, and a new `MODULE_DEVICE_TABLE(spi, ...)`.
+- **Device Tree binding:** Replace the manual `new_device` instantiation with a proper
+  DT node, making the driver usable on embedded boards (Raspberry Pi, BeagleBone, etc.).
+
+---
+Developed by: Giacomo Di Clerico & Lorenzo D'Ortona
+Politecnico di Milano - A.Y. 2025/2026
