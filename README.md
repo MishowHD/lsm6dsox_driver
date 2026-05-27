@@ -2,7 +2,7 @@
 
 This repository contains a Linux kernel driver for the **ST LSM6DSOX** IMU (Accelerometer + Gyroscope), developed as an educational project for the **Advanced Operating Systems (AOS)** course.
 
-## 📖 Recommended Reading Path
+## Recommended Reading Path
 
 If you are new to Linux kernel driver development, follow this path in order.
 Each step builds on the previous one.
@@ -40,7 +40,7 @@ Open [`slides.pdf`](./slides.pdf) for sequence diagrams of:
 [`report_lsm6dsox_en.pdf`](./report_lsm6dsox_en.pdf) covers the design decisions,
 comparison with the official kernel driver, and lessons learned.
 
-## 🛠 Project Structure
+## Project Structure
 
 - `lsm6dsox_driver.c`: The main driver source code (IIO + Regmap).
 - `lsm6dsox.h`: Register definitions for the LSM6DSOX sensor.
@@ -48,14 +48,14 @@ comparison with the official kernel driver, and lessons learned.
 - `report_lsm6dsox_en.pdf`: The detailed technical report (LaTeX).
 - `slides.pdf`: The project presentation with sequence diagrams.
 
-## 🚀 Key Features
+## Key Features
 
 - **IIO Direct Mode**: Real-time reading of raw and scaled data via `sysfs`.
 - **Triggered Buffers**: High-speed binary streaming using `kfifo`.
 - **Regmap Abstraction**: Clean hardware-software interfacing with built-in locking.
 - **Managed Resources (`devm`)**: Robust memory and resource management.
 
-## 🔭 Ideas for Extension
+## Ideas for Extension
 
 This driver is intentionally minimal. If you want to go further, here are concrete directions:
 
