@@ -1,6 +1,8 @@
 # LSM6DSOX IIO Linux Driver - Educational Project
 
-This repository contains a Linux kernel driver for the **ST LSM6DSOX** IMU (Accelerometer + Gyroscope), developed as an educational project for the **Advanced Operating Systems (AOS)** course.
+This repository contains a Linux kernel driver for the **ST LSM6DSOX** IMU (Accelerometer + Gyroscope), developed as a final project for the **Advanced Operating Systems (AOS)** and **Embedded Systems** courses at Politecnico di Milano. 
+
+The project was awarded the maximum score (**10/10**) in both courses.
 
 ## Recommended Reading Path
 
@@ -73,5 +75,6 @@ This driver is intentionally minimal. If you want to go further, here are concre
   DT node, making the driver usable on embedded boards (Raspberry Pi, BeagleBone, etc.).
 
 ---
-Developed by: Giacomo Di Clerico & Lorenzo D'Ortona
-Politecnico di Milano - A.Y. 2025/2026
+**Developed by:** Giacomo Di Clerico & Lorenzo D'Ortona  
+**Course:** Advanced Operating Systems & Embedded Systems  
+**Institution:** Politecnico di Milano - A.Y. 2025/2026
